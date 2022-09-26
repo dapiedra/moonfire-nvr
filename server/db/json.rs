@@ -240,6 +240,7 @@ pub struct StreamConfig {
 sql!(StreamConfig);
 
 pub const STREAM_MODE_RECORD: &'static str = "record";
+pub const STREAM_MODE_MONITOR: &'static str = "monitor";
 
 impl StreamConfig {
     pub fn is_empty(&self) -> bool {

@@ -27,7 +27,7 @@ struct Camera {
 #[derive(Debug, Default)]
 struct Stream {
     url: String,
-    record: bool,
+    mode: &'static str,
     flush_if_sec: String,
     rtsp_transport: &'static str,
     sample_file_dir_id: Option<i32>,
@@ -81,10 +81,11 @@ fn get_camera(siv: &mut Cursive) -> Camera {
             .get_content()
             .as_str()
             .to_owned();
-        let record = siv
-            .find_name::<views::Checkbox>(&format!("{}_record", t.as_str()))
+        let mode = *siv
+            .find_name::<views::SelectView<&'static str>>(&format!("{}_mode", t.as_str()))
             .unwrap()
-            .is_checked();
+            .selection()
+            .unwrap();
         let rtsp_transport = *siv
             .find_name::<views::SelectView<&'static str>>(&format!("{}_rtsp_transport", t.as_str()))
             .unwrap()
@@ -103,7 +104,7 @@ fn get_camera(siv: &mut Cursive) -> Camera {
             .unwrap();
         camera.streams[t.index()] = Stream {
             url,
-            record,
+            mode,
             flush_if_sec,
             rtsp_transport,
             sample_file_dir_id,
@@ -151,19 +152,16 @@ fn press_edit(siv: &mut Cursive, db: &Arc<db::Database>, id: Option<i32>) {
         change.config.password = camera.password;
         for (i, stream) in camera.streams.iter().enumerate() {
             let type_ = db::StreamType::from_index(i).unwrap();
-            if stream.record && (stream.url.is_empty() || stream.sample_file_dir_id.is_none()) {
+            if stream.mode == db::json::STREAM_MODE_RECORD
+                && (stream.url.is_empty() || stream.sample_file_dir_id.is_none())
+            {
                 bail!(
                     "Can't record {} stream without RTSP URL and sample file directory",
                     type_.as_str()
                 );
             }
             let stream_change = &mut change.streams[i];
-            stream_change.config.mode = (if stream.record {
-                db::json::STREAM_MODE_RECORD
-            } else {
-                ""
-            })
-            .to_owned();
+            stream_change.config.mode = (stream.mode).to_owned();
             stream_change.config.url = parse_url(&stream.url, &["rtsp"])?;
             stream_change.config.rtsp_transport = stream.rtsp_transport.to_owned();
             stream_change.sample_file_dir_id = stream.sample_file_dir_id;
@@ -488,8 +486,15 @@ fn edit_camera_dialog(db: &Arc<db::Database>, siv: &mut Cursive, item: &Option<i
                     .with_name(format!("{}_sample_file_dir", type_.as_str())),
             )
             .child(
-                "record",
-                views::Checkbox::new().with_name(format!("{}_record", type_.as_str())),
+                "mode",
+                views::SelectView::<&str>::new()
+                    .with_all([
+                        ("(default)", ""),
+                        (db::json::STREAM_MODE_RECORD, db::json::STREAM_MODE_RECORD),
+                        (db::json::STREAM_MODE_MONITOR, db::json::STREAM_MODE_MONITOR),
+                    ])
+                    .popup()
+                    .with_name(format!("{}_mode", type_.as_str())),
             )
             .child(
                 "rtsp_transport",
@@ -565,9 +570,13 @@ fn edit_camera_dialog(db: &Arc<db::Database>, siv: &mut Cursive, item: &Option<i
                     |v: &mut views::TextView| v.set_content(u),
                 );
                 dialog.call_on_name(
-                    &format!("{}_record", t.as_str()),
-                    |v: &mut views::Checkbox| {
-                        v.set_checked(s.config.mode == db::json::STREAM_MODE_RECORD)
+                    &format!("{}_mode", t.as_str()),
+                    |v: &mut views::SelectView<&'static str>| {
+                        v.set_selection(match s.config.mode.as_str() {
+                            db::json::STREAM_MODE_RECORD => 1,
+                            db::json::STREAM_MODE_MONITOR => 2,
+                            _ => 0,
+                        })
                     },
                 );
                 dialog.call_on_name(
